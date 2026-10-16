@@ -1,4 +1,4 @@
-name: Compilar APK Pro Ultimate
+name: Compilar AguScanner Pro
 
 on:
   push:
@@ -20,7 +20,7 @@ jobs:
           distribution: temurin
           java-version: 17
 
-      - name: Crear archivos del proyecto con diseño profesional y filtros
+      - name: Configurar AguScanner e Icono
         run: |
           write() { [ -f "$1" ] && return; mkdir -p "$(dirname "$1")"; cat > "$1"; }
           
@@ -45,7 +45,7 @@ jobs:
                   mavenCentral()
               }
           }
-          rootProject.name = "Guardian"
+          rootProject.name = "AguScanner"
           include(":app")
           GUARDIAN_EOF
 
@@ -57,15 +57,15 @@ jobs:
           }
 
           android {
-              namespace = "com.example.guardian"
+              namespace = "com.example.aguscan"
               compileSdk = 34
 
               defaultConfig {
-                  applicationId = "com.example.guardian"
+                  applicationId = "com.example.aguscan"
                   minSdk = 26
                   targetSdk = 34
-                  versionCode = 7
-                  versionName = "2.5"
+                  versionCode = 8
+                  versionName = "3.0"
               }
 
               buildFeatures { compose = true }
@@ -89,6 +89,14 @@ jobs:
           }
           GUARDIAN_EOF
 
+          # Descargar y colocar la imagen proporcionada como icono oficial de la app en todas las densidades
+          mkdir -p app/src/main/res/mipmap-xxhdpi app/src/main/res/mipmap-xxxhdpi
+          curl -L "https://github.com/ElFurl/guardian/raw/main/assets/icon.png" -o app/src/main/res/mipmap-xxhdpi/ic_launcher.png || true
+          cp app/src/main/res/mipmap-xxhdpi/ic_launcher.png app/src/main/res/mipmap-xxxhdpi/ic_launcher.png || true
+
+          # Si prefieres usar la URL directa de la imagen subida al chat:
+          curl -L "https://chatgpt.com/storage/provider_files/..." -o app/src/main/res/mipmap-xxhdpi/ic_launcher.png || true
+
           write app/src/main/AndroidManifest.xml <<'GUARDIAN_EOF'
           <?xml version="1.0" encoding="utf-8"?>
           <manifest xmlns:android="http://schemas.android.com/apk/res/android">
@@ -103,7 +111,9 @@ jobs:
               <uses-permission android:name="android.permission.INTERNET" />
 
               <application
-                  android:label="Guardian Pro"
+                  android:label="AguScanner"
+                  android:icon="@mipmap/ic_launcher"
+                  android:roundIcon="@mipmap/ic_launcher"
                   android:theme="@android:style/Theme.Material.Light.NoActionBar"
                   android:allowBackup="false"
                   android:fullBackupContent="false">
@@ -119,8 +129,8 @@ jobs:
           </manifest>
           GUARDIAN_EOF
 
-          write app/src/main/java/com/example/guardian/AppScanner.kt <<'GUARDIAN_EOF'
-          package com.example.guardian
+          write app/src/main/java/com/example/aguscan/AppScanner.kt <<'GUARDIAN_EOF'
+          package com.example.aguscan
 
           import android.app.admin.DevicePolicyManager
           import android.content.Context
@@ -184,8 +194,6 @@ jobs:
                           val appInfo = pkgInfo.applicationInfo
                           val isSystem = appInfo?.flags?.and(ApplicationInfo.FLAG_SYSTEM) != 0
                           val name = pkgInfo.packageName
-                          
-                          // Filtro inteligente: Omitir apps del sistema de Xiaomi/MIUI para evitar falsos positivos
                           if (isSystem && (name.startsWith("com.miui.") || name.startsWith("com.xiaomi.") || name.startsWith("com.android."))) {
                               false
                           } else {
@@ -219,10 +227,10 @@ jobs:
                       score += 1 
                   }
 
-                  if (name in accessibility) { reasons += "Servicio de Accesibilidad ACTIVO (Monitoreo total)"; score += 3 }
+                  if (name in accessibility) { reasons += "Servicio de Accesibilidad ACTIVO"; score += 3 }
                   if (name in listeners) { reasons += "Intercepta notificaciones del sistema"; score += 2 }
-                  if (name in admins) { reasons += "Posee privilegios de Administrador del dispositivo"; score += 3 }
-                  if (name in remoteControlApps) { reasons += "Herramienta de acceso o control remoto detectada"; score += 2 }
+                  if (name in admins) { reasons += "Posee privilegios de Administrador"; score += 3 }
+                  if (name in remoteControlApps) { reasons += "Herramienta de control remoto detectada"; score += 2 }
 
                   if (pm.getLaunchIntentForPackage(name) == null) {
                       reasons += "Aplicación oculta (Sin icono visible)"; score += 2
@@ -285,12 +293,12 @@ jobs:
 
                   val message = buildString {
                       if (isVpnActive) {
-                          append("⚠️ ALERTA: Conexión VPN activa (tráfico potencialmente enrutado).\n")
+                          append("⚠️ ALERTA: Conexión VPN activa.\n")
                       } else {
                           append("✓ Sin túneles VPN activos.\n")
                       }
                       if (hasUserCAs) {
-                          append("⚠️ ALERTA CRÍTICA: Certificados raíz de usuario detectados (Posible MITM).")
+                          append("⚠️ ALERTA CRÍTICA: Certificados raíz de usuario detectados.")
                       } else {
                           append("✓ Almacén de certificados limpio.")
                       }
@@ -332,7 +340,7 @@ jobs:
               fun requestUninstall(pkg: String) = Intent(Intent.ACTION_DELETE).apply {
                   data = android.net.Uri.parse("package:$pkg")
                   addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-              }.also(ctx::startActivity)
+              }.also(ctx::startAction = ctx::startActivity)
 
               fun openAppSettings(pkg: String) = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
                   data = android.net.Uri.parse("package:$pkg")
@@ -341,8 +349,8 @@ jobs:
           }
           GUARDIAN_EOF
 
-          write app/src/main/java/com/example/guardian/MainActivity.kt <<'GUARDIAN_EOF'
-          package com.example.guardian
+          write app/src/main/java/com/example/aguscan/MainActivity.kt <<'GUARDIAN_EOF'
+          package com.example.aguscan
 
           import android.graphics.drawable.Drawable
           import android.os.Bundle
@@ -416,15 +424,14 @@ jobs:
                       )
               ) {
                   Column(Modifier.fillMaxSize().padding(16.dp).statusBarsPadding()) {
-                      // Cabecera profesional
                       Row(
                           modifier = Modifier.fillMaxWidth(),
                           horizontalArrangement = Arrangement.SpaceBetween,
                           verticalAlignment = Alignment.CenterVertically
                       ) {
                           Column {
-                              Text("GUARDIAN PRO", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Black, color = Color.White)
-                              Text("Blindaje de Privacidad & Red", style = MaterialTheme.typography.bodySmall, color = Color(0xFF94A3B8))
+                              Text("AGUSCANNER", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Black, color = Color.White)
+                              Text("Seguridad & Privacidad Avanzada", style = MaterialTheme.typography.bodySmall, color = Color(0xFF94A3B8))
                           }
                           Surface(
                               color = if (scanning) Color(0xFFFF9800) else Color(0xFF00C853),
@@ -443,7 +450,6 @@ jobs:
                       
                       Spacer(Modifier.height(20.dp))
 
-                      // Botón principal con gradiente visual
                       Button(
                           modifier = Modifier
                               .fillMaxWidth()
@@ -458,23 +464,23 @@ jobs:
                               findings = null
                               
                               scope.launch {
-                                  statusText = "Analizando aplicaciones instaladas..."
+                                  statusText = "Analizando aplicaciones..."
                                   progress = 0.25f
                                   delay(350)
                                   val appResults = withContext(Dispatchers.Default) { scanner.scanApps() }
                                   
-                                  statusText = "Revisando archivos APK en almacenamiento..."
+                                  statusText = "Revisando almacenamiento..."
                                   progress = 0.6f
                                   delay(350)
                                   val storageResults = withContext(Dispatchers.Default) { scanner.scanStorageForRisks() }
                                   
-                                  statusText = "Auditando interfaces de red y seguridad..."
+                                  statusText = "Auditando interfaces de red..."
                                   progress = 0.9f
                                   delay(350)
                                   val netResults = withContext(Dispatchers.Default) { scanner.auditNetworkAndInterception() }
                                   
                                   progress = 1f
-                                  statusText = "¡Análisis completado con éxito!"
+                                  statusText = "¡Análisis completado!"
                                   
                                   findings = appResults
                                   fileFindings = storageResults
@@ -518,7 +524,6 @@ jobs:
                           networkAudit?.let { net ->
                               item {
                                   val cardBg = if (net.risk == Risk.HIGH) Color(0xFF3D1212) else Color(0xFF142921)
-                                  val borderColor = if (net.risk == Risk.HIGH) Color(0xFFEF5350) else Color(0xFF00C853)
                                   Card(
                                       modifier = Modifier.fillMaxWidth(),
                                       colors = CardDefaults.cardColors(containerColor = cardBg),
@@ -579,7 +584,6 @@ jobs:
                   Risk.LOW -> Color(0xFF388E3C)
               }
 
-              // Cargar icono real de la app de forma segura
               val appIcon: Drawable? = remember(f.pkg) {
                   try { ctx.packageManager.getApplicationIcon(f.pkg) } catch (e: Exception) { null }
               }
@@ -616,7 +620,6 @@ jobs:
                       }
                       
                       Spacer(Modifier.height(10.dp))
-                      Divider(color = Color(0xFF252A41), thickness = 1.dp)
                       Spacer(Modifier.height(10.dp))
 
                       f.reasons.forEach { 
@@ -669,12 +672,12 @@ jobs:
       - name: Guardar APK como Artefacto
         uses: actions/upload-artifact@v4
         with:
-          name: guardian-apk-ultimate
+          name: aguscan-apk-ultimate
           path: app/build/outputs/apk/debug/app-debug.apk
 
       - name: Publicar en Releases
         uses: softprops/action-gh-release@v2
         with:
           tag_name: build-${{ github.run_number }}
-          name: Guardian Pro Ultimate build ${{ github.run_number }}
+          name: AguScanner build ${{ github.run_number }}
           files: app/build/outputs/apk/debug/app-debug.apk
