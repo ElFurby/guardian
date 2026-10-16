@@ -470,7 +470,7 @@ jobs:
 
                   Spacer(Modifier.height(8.dp))
 
-                  LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillWeight(1f)) {
+                  LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.weight(1f)) {
                       networkAudit?.let { net ->
                           item {
                               val cardColor = if (net.risk == Risk.HIGH) Color(0xFF3B1010) else Color(0xFF1E281E)
