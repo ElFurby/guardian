@@ -1,4 +1,4 @@
-name: Compilar APK Pro
+name: Compilar APK Pro Ultimate
 
 on:
   push:
@@ -14,7 +14,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Crear archivos del proyecto (solo los que falten)
+      - name: Crear archivos del proyecto (Actualización Profesional)
         run: |
           write() { [ -f "$1" ] && return; mkdir -p "$(dirname "$1")"; cat > "$1"; }
           
@@ -52,8 +52,8 @@ jobs:
                   applicationId = "com.example.guardian"
                   minSdk = 26
                   targetSdk = 34
-                  versionCode = 1
-                  versionName = "1.0"
+                  versionCode = 2
+                  versionName = "2.0"
               }
 
               buildFeatures { compose = true }
@@ -88,6 +88,7 @@ jobs:
               <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
               <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
               <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+              <uses-permission android:name="android.permission.INTERNET" />
 
               <application
                   android:label="Guardian Pro"
@@ -139,6 +140,13 @@ jobs:
               val reason: String
           )
 
+          data class NetworkAudit(
+              val statusMessage: String,
+              val isVpnActive: Boolean,
+              val hasUserCAs: Boolean,
+              val risk: Risk
+          )
+
           class AppScanner(private val ctx: Context) {
 
               private val pm = ctx.packageManager
@@ -184,23 +192,23 @@ jobs:
 
                   val trusted = setOf("com.android.vending", "com.xiaomi.mipicks", "com.miui.packageinstaller", "com.google.android.packageinstaller")
                   if (installer !in trusted && installer != null) { 
-                      reasons += "Instalada desde fuente no oficial: $installer"
+                      reasons += "Instalada desde fuente externa u oficial desconocida: $installer"
                       score += 1 
                   }
 
-                  if (name in accessibility) { reasons += "Servicio de Accesibilidad ACTIVO (Monitoreo de pantalla)"; score += 3 }
-                  if (name in listeners) { reasons += "Intercepta notificaciones del sistema"; score += 2 }
+                  if (name in accessibility) { reasons += "Servicio de Accesibilidad ACTIVO (Monitoreo total de pantalla y pulsaciones)"; score += 3 }
+                  if (name in listeners) { reasons += "Intercepta notificaciones del sistema en tiempo real"; score += 2 }
                   if (name in admins) { reasons += "Posee privilegios de Administrador del dispositivo"; score += 3 }
-                  if (name in remoteControlApps) { reasons += "Herramienta de control remoto detectada"; score += 2 }
+                  if (name in remoteControlApps) { reasons += "Herramienta de acceso o control remoto detectada"; score += 2 }
 
                   if (pm.getLaunchIntentForPackage(name) == null) {
-                      reasons += "Aplicación oculta (Sin icono en el lanzador)"; score += 2
+                      reasons += "Aplicación oculta (Sin icono visible en el lanzador)"; score += 2
                   }
 
                   val perms = p.requestedPermissions?.toSet().orEmpty()
                   val spy = perms.intersect(spyPermissions)
                   if (spy.size >= 3) {
-                      reasons += "Alto nivel de permisos sensibles: ${spy.joinToString { it.substringAfterLast('.') }}"
+                      reasons += "Alto nivel de permisos combinados de espionaje: ${spy.joinToString { it.substringAfterLast('.') }}"
                       score += 2
                   }
 
@@ -233,7 +241,7 @@ jobs:
                                           path = file.absolutePath,
                                           name = file.name,
                                           risk = Risk.MEDIUM,
-                                          reason = "Archivo APK suelto en descargas (potencial instalador olvidado o malicioso)"
+                                          reason = "Archivo APK suelto en descargas (riesgo de ejecución de instalador no verificado)"
                                       )
                                   )
                               }
@@ -243,17 +251,38 @@ jobs:
                   return findings
               }
 
-              fun checkNetworkInterception(): String {
+              fun auditNetworkAndInterception(): NetworkAudit {
                   val cm = ctx.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
                   val network = cm.activeNetwork
                   val caps = cm.getNetworkCapabilities(network)
                   
-                  return when {
-                      caps == null -> "Sin conexión a internet activa."
-                      caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN) -> "⚠️ Advertencia: Hay una VPN activa. Su tráfico podría estar siendo enrutado o interceptado por un tercero."
-                      caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> "Conectado vía Wi-Fi de manera estándar."
-                      else -> "Conectado a red móvil."
+                  val isVpnActive = caps?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true
+                  
+                  // Verificación heurística de certificados de usuario (posible ataque MITM de interceptación SSL)
+                  val userCertDir = File("/data/misc/keychain/cacerts-added/")
+                  val hasUserCAs = userCertDir.exists() && (userCertDir.listFiles()?.isNotEmpty() == true)
+
+                  val message = buildString {
+                      if (isVpnActive) {
+                          append("⚠️ ALERTA: Conexión VPN activa. El tráfico de red puede estar siendo redirigido o interceptado.\n")
+                      } else {
+                          append("✓ No hay túneles VPN activos en este momento.\n")
+                      }
+                      if (hasUserCAs) {
+                          append("⚠️ ALERTA CRÍTICA: Se detectaron certificados raíz instalados por el usuario. Posible interceptación de tráfico HTTPS (MITM).\n")
+                      } else {
+                          append("✓ Almacén de certificados limpio (Sin certificados extraños de usuario).")
+                      }
                   }
+
+                  val risk = if (isVpnActive || hasUserCAs) Risk.HIGH else Risk.LOW
+
+                  return NetworkAudit(
+                      statusMessage = message.trim(),
+                      isVpnActive = isVpnActive,
+                      hasUserCAs = hasUserCAs,
+                      risk = risk
+                  )
               }
 
               private fun enabledAccessibilityPackages(): Set<String> {
@@ -297,17 +326,24 @@ jobs:
           import android.os.Bundle
           import androidx.activity.ComponentActivity
           import androidx.activity.compose.setContent
+          import androidx.compose.animation.AnimatedVisibility
+          import androidx.compose.foundation.background
           import androidx.compose.foundation.layout.*
           import androidx.compose.foundation.lazy.LazyColumn
           import androidx.compose.foundation.lazy.items
+          import androidx.compose.foundation.shape.RoundedCornerShape
           import androidx.compose.material3.*
           import androidx.compose.runtime.*
           import androidx.compose.ui.Alignment
           import androidx.compose.ui.Modifier
+          import androidx.compose.ui.draw.clip
           import androidx.compose.ui.graphics.Color
           import androidx.compose.ui.platform.LocalContext
+          import androidx.compose.ui.text.font.FontWeight
           import androidx.compose.ui.unit.dp
+          import androidx.compose.ui.unit.sp
           import kotlinx.coroutines.Dispatchers
+          import kotlinx.coroutines.delay
           import kotlinx.coroutines.launch
           import kotlinx.coroutines.withContext
 
@@ -315,7 +351,11 @@ jobs:
               override fun onCreate(savedInstanceState: Bundle?) {
                   super.onCreate(savedInstanceState)
                   setContent { 
-                      MaterialTheme(colorScheme = darkColorScheme()) { 
+                      MaterialTheme(colorScheme = darkColorScheme(
+                          background = Color(0xFF121212),
+                          surface = Color(0xFF1E1E1E),
+                          primary = Color(0xFFBB86FC)
+                      )) { 
                           Surface(modifier = Modifier.fillMaxSize()) { 
                               ScannerScreen() 
                           } 
@@ -332,63 +372,140 @@ jobs:
               
               var findings by remember { mutableStateOf<List<Finding>?>(null) }
               var fileFindings by remember { mutableStateOf<List<FileFinding>>(emptyList()) }
-              var networkStatus by remember { mutableStateOf("No analizado") }
+              var networkAudit by remember { mutableStateOf<NetworkAudit?>(null) }
+              
               var scanning by remember { mutableStateOf(false) }
+              var progress by remember { mutableStateOf(0f) }
+              var statusText by remember { mutableStateOf("Listo para analizar") }
 
               Column(Modifier.fillMaxSize().padding(16.dp).statusBarsPadding()) {
-                  Text("Guardian Security Pro", style = MaterialTheme.typography.headlineMedium)
-                  Text("Protección avanzada para Redmi / HyperOS", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
-                  
-                  Spacer(Modifier.height(16.dp))
-
-                  Button(
+                  // Cabecera profesional
+                  Row(
                       modifier = Modifier.fillMaxWidth(),
+                      horizontalArrangement = Arrangement.SpaceBetween,
+                      verticalAlignment = Alignment.CenterVertically
+                  ) {
+                      Column {
+                          Text("GUARDIAN PRO", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold, color = Color.White)
+                          Text("Auditoría de Seguridad & Privacidad", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+                      }
+                      Surface(
+                          color = if (scanning) Color(0xFFF57C00) else Color(0xFF2E7D32),
+                          shape = RoundedCornerShape(12.dp)
+                      ) {
+                          Text(
+                              text = if (scanning) "ESCANEANDO"v.toString() else "PROTEGIDO",
+                              modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                              style = MaterialTheme.typography.labelSmall,
+                              color = Color.White,
+                              fontWeight = FontWeight.Bold
+                          )
+                      }
+                  }
+                  
+                  Spacer(Modifier.height(20.dp))
+
+                  // Botón de escaneo principal con estilo moderno
+                  Button(
+                      modifier = Modifier.fillMaxWidth().height(54.dp),
+                      shape = RoundedCornerShape(14.dp),
+                      colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF6200EE)),
                       enabled = !scanning,
                       onClick = {
                           scanning = true
+                          progress = 0f
+                          findings = null
+                          
                           scope.launch {
-                              findings = withContext(Dispatchers.Default) { scanner.scanApps() }
-                              fileFindings = withContext(Dispatchers.Default) { scanner.scanStorageForRisks() }
-                              networkStatus = withContext(Dispatchers.Default) { scanner.checkNetworkInterception() }
+                              statusText = "Analizando aplicaciones instaladas y permisos..."
+                              progress = 0.2f
+                              delay(400)
+                              val appResults = withContext(Dispatchers.Default) { scanner.scanApps() }
+                              
+                              statusText = "Inspeccionando almacenamiento en busca de archivos APK..."
+                              progress = 0.6f
+                              delay(400)
+                              val storageResults = withContext(Dispatchers.Default) { scanner.scanStorageForRisks() }
+                              
+                              statusText = "Auditando red, VPNs y certificados de interceptación..."
+                              progress = 0.9f
+                              delay(400)
+                              val netResults = withContext(Dispatchers.Default) { scanner.auditNetworkAndInterception() }
+                              
+                              progress = 1f
+                              statusText = "¡Análisis completado con éxito!"
+                              
+                              findings = appResults
+                              fileFindings = storageResults
+                              networkAudit = netResults
                               scanning = false
                           }
                       }
                   ) { 
-                      Text(if (scanning) "Analizando sistema..." else "Iniciar Escaneo Completo") 
+                      Text(if (scanning) "Analizando sistema..." else "INICIAR ESCANEO PROFUNDO", fontSize = 16.sp, fontWeight = FontWeight.Bold) 
                   }
 
-                  Spacer(Modifier.height(12.dp))
+                  Spacer(Modifier.height(16.dp))
 
-                  Card(modifier = Modifier.fillMaxWidth()) {
-                      Column(Modifier.padding(12.dp)) {
-                          Text("Estado de Red y Conexiones", style = MaterialTheme.typography.titleSmall)
-                          Spacer(Modifier.height(4.dp))
-                          Text(networkStatus, style = MaterialTheme.typography.bodyMedium)
+                  // Barra de Carga Animada y Estado Dinámico
+                  AnimatedVisibility(visible = scanning) {
+                      Column(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+                          LinearProgressIndicator(
+                              progress = { progress },
+                              modifier = Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(4.dp)),
+                              color = Color(0xFFBB86FC),
+                              trackColor = Color(0xFF2C2C2C)
+                          )
+                          Spacer(Modifier.height(8.dp))
+                          Text(statusText, style = MaterialTheme.typography.bodyMedium, color = Color(0xFFBB86FC))
                       }
                   }
 
-                  Spacer(Modifier.height(12.dp))
+                  Spacer(Modifier.height(8.dp))
 
-                  if (scanning) {
-                      Box(modifier = Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) {
-                          CircularProgressIndicator()
+                  // Resultados del análisis en lista estructurada
+                  LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillWeight(1f)) {
+                      
+                      // Tarjeta de Red y Tráfico
+                      networkAudit?.let { net ->
+                          item {
+                              val cardColor = if (net.risk == Risk.HIGH) Color(0xFF3B1010) else Color(0xFF1E281E)
+                              val borderColor = if (net.risk == Risk.HIGH) Color(0xFFD32F2F) else Color(0xFF388E3C)
+                              Card(
+                                  modifier = Modifier.fillMaxWidth(),
+                                  colors = CardDefaults.cardColors(containerColor = cardColor)
+                              ) {
+                                  Column(Modifier.padding(14.dp)) {
+                                      Text("🔒 Auditoría de Tráfico y Red", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = Color.White)
+                                      Spacer(Modifier.height(6.dp))
+                                      Text(net.statusMessage, style = MaterialTheme.typography.bodyMedium, color = Color.LightGray)
+                                  }
+                              }
+                          }
                       }
-                  } else {
-                      LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillWeight(1f)) {
-                          if (!findings.isNullOrEmpty()) {
-                              item { Text("Aplicaciones Sospechosas (${findings!!.size})", style = MaterialTheme.typography.titleMedium) }
-                              items(findings!!, key = { it.pkg }) { f -> FindingCard(f, scanner) }
-                          }
 
-                          if (fileFindings.isNotEmpty()) {
-                              item { Text("Archivos en Riesgo (${fileFindings.size})", style = MaterialTheme.typography.titleMedium) }
-                              items(fileFindings, key = { it.path }) { ff -> FileFindingCard(ff) }
+                      if (!findings.isNullOrEmpty()) {
+                          item { 
+                              Text("Aplicaciones de Riesgo (${findings!!.size})", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = Color.White) 
                           }
+                          items(findings!!, key = { it.pkg }) { f -> FindingCard(f, scanner) }
+                      }
 
-                          if (findings != null && findings!!.isEmpty() && fileFindings.isEmpty()) {
-                              item {
-                                  Box(modifier = Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
-                                      Text("¡Sistema Limpio! No se detectaron amenazas.", color = Color(0xFF689F38))
+                      if (fileFindings.isNotEmpty()) {
+                          item { 
+                              Text("Archivos Sospechosos en Almacenamiento (${fileFindings.size})", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = Color.White) 
+                          }
+                          items(fileFindings, key = { it.path }) { ff -> FileFindingCard(ff) }
+                      }
+
+                      if (findings != null && findings!!.isEmpty() && fileFindings.isEmpty() && networkAudit?.risk == Risk.LOW) {
+                          item {
+                              Box(modifier = Modifier.fillMaxWidth().padding(40.dp), contentAlignment = Alignment.Center) {
+                                  Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                      Text("🛡️", fontSize = 48.sp)
+                                      Spacer(Modifier.height(8.dp))
+                                      Text("¡Sistema Segurizado!", color = Color(0xFF81C784), fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                                      Text("No se detectaron espías ni interceptaciones.", color = Color.Gray, fontSize = 14.sp)
                                   }
                               }
                           }
@@ -399,21 +516,29 @@ jobs:
 
           @Composable
           fun FindingCard(f: Finding, scanner: AppScanner) {
-              val color = when (f.risk) {
+              val badgeColor = when (f.risk) {
                   Risk.HIGH -> Color(0xFFD32F2F)
                   Risk.MEDIUM -> Color(0xFFF57C00)
-                  Risk.LOW -> Color(0xFF689F38)
+                  Risk.LOW -> Color(0xFF388E3C)
               }
-              Card(Modifier.fillMaxWidth()) {
-                  Column(Modifier.padding(12.dp)) {
-                      Text("${f.label} · ${f.risk}", color = color, style = MaterialTheme.typography.titleMedium)
-                      Text(f.pkg, style = MaterialTheme.typography.bodySmall, color = Color.LightGray)
-                      Spacer(Modifier.height(6.dp))
-                      f.reasons.forEach { Text("• $it", style = MaterialTheme.typography.bodyMedium) }
+              Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = Color(0xFF1E1E1E))) {
+                  Column(Modifier.padding(14.dp)) {
+                      Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                          Text(f.label, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = Color.White)
+                          Surface(color = badgeColor, shape = RoundedCornerShape(6.dp)) {
+                              Text(f.risk.name, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp), style = MaterialTheme.typography.labelSmall, color = Color.White, fontWeight = FontWeight.Bold)
+                          }
+                      }
+                      Text(f.pkg, style = MaterialTheme.typography.bodySmall, color = Color.Gray)
                       Spacer(Modifier.height(8.dp))
+                      f.reasons.forEach { Text("• $it", style = MaterialTheme.typography.bodyMedium, color = Color(0xFFE0E0E0)) }
+                      Spacer(Modifier.height(12.dp))
                       Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                           OutlinedButton(onClick = { scanner.openAppSettings(f.pkg) }) { Text("Ajustes") }
-                          Button(onClick = { scanner.requestUninstall(f.pkg) }) { Text("Desinstalar") }
+                          Button(
+                              colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFB71C1C)),
+                              onClick = { scanner.requestUninstall(f.pkg) }
+                          ) { Text("Desinstalar") }
                       }
                   }
               }
@@ -421,12 +546,12 @@ jobs:
 
           @Composable
           fun FileFindingCard(ff: FileFinding) {
-              Card(Modifier.fillMaxWidth()) {
-                  Column(Modifier.padding(12.dp)) {
-                      Text(ff.name, color = Color(0xFFF57C00), style = MaterialTheme.typography.titleMedium)
-                      Text(ff.path, style = MaterialTheme.typography.bodySmall, color = Color.LightGray)
+              Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = Color(0xFF1E1E1E))) {
+                  Column(Modifier.padding(14.dp)) {
+                      Text(ff.name, color = Color(0xFFF57C00), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                      Text(ff.path, style = MaterialTheme.typography.bodySmall, color = Color.Gray)
                       Spacer(Modifier.height(6.dp))
-                      Text("• ${ff.reason}", style = MaterialTheme.typography.bodyMedium)
+                      Text("• ${ff.reason}", style = MaterialTheme.typography.bodyMedium, color = Color(0xFFE0E0E0))
                   }
               }
           }
@@ -442,18 +567,18 @@ jobs:
           gradle-version: "8.9"
           cache-read-only: false
 
-      - name: Compilar APK en modo Debug
+      - name: Compilar APK Ultimate
         run: gradle assembleDebug -Pandroid.useAndroidX=true --no-daemon
 
       - name: Guardar APK como artefacto
         uses: actions/upload-artifact@v4
         with:
-          name: guardian-apk-pro
+          name: guardian-apk-ultimate
           path: app/build/outputs/apk/debug/app-debug.apk
 
       - name: Publicar APK en Releases
         uses: softprops/action-gh-release@v2
         with:
           tag_name: build-${{ github.run_number }}
-          name: Guardian Pro build ${{ github.run_number }}
+          name: Guardian Pro Ultimate build ${{ github.run_number }}
           files: app/build/outputs/apk/debug/app-debug.apk
