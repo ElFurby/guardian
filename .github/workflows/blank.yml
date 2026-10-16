@@ -52,8 +52,8 @@ jobs:
                   applicationId = "com.example.guardian"
                   minSdk = 26
                   targetSdk = 34
-                  versionCode = 2
-                  versionName = "2.0"
+                  versionCode = 3
+                  versionName = "2.1"
               }
 
               buildFeatures { compose = true }
@@ -196,7 +196,7 @@ jobs:
                       score += 1 
                   }
 
-                  if (name in accessibility) { reasons += "Servicio de Accesibilidad ACTIVO (Monitoreo total de pantalla y pulsaciones)"; score += 3 }
+                  if (name in accessibility) { reasons += "Servicio de Accesibilidad ACTIVO (Monitoreo total de pantalla)"; score += 3 }
                   if (name in listeners) { reasons += "Intercepta notificaciones del sistema en tiempo real"; score += 2 }
                   if (name in admins) { reasons += "Posee privilegios de Administrador del dispositivo"; score += 3 }
                   if (name in remoteControlApps) { reasons += "Herramienta de acceso o control remoto detectada"; score += 2 }
@@ -241,7 +241,7 @@ jobs:
                                           path = file.absolutePath,
                                           name = file.name,
                                           risk = Risk.MEDIUM,
-                                          reason = "Archivo APK suelto en descargas (riesgo de ejecución de instalador no verificado)"
+                                          reason = "Archivo APK suelto en descargas (riesgo de instalador no verificado)"
                                       )
                                   )
                               }
@@ -257,21 +257,19 @@ jobs:
                   val caps = cm.getNetworkCapabilities(network)
                   
                   val isVpnActive = caps?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true
-                  
-                  // Verificación heurística de certificados de usuario (posible ataque MITM de interceptación SSL)
                   val userCertDir = File("/data/misc/keychain/cacerts-added/")
                   val hasUserCAs = userCertDir.exists() && (userCertDir.listFiles()?.isNotEmpty() == true)
 
                   val message = buildString {
                       if (isVpnActive) {
-                          append("⚠️ ALERTA: Conexión VPN activa. El tráfico de red puede estar siendo redirigido o interceptado.\n")
+                          append("⚠️ ALERTA: Conexión VPN activa. Tráfico redirigido o potencialmente interceptado.\n")
                       } else {
-                          append("✓ No hay túneles VPN activos en este momento.\n")
+                          append("✓ Sin túneles VPN activos.\n")
                       }
                       if (hasUserCAs) {
-                          append("⚠️ ALERTA CRÍTICA: Se detectaron certificados raíz instalados por el usuario. Posible interceptación de tráfico HTTPS (MITM).\n")
+                          append("⚠️ ALERTA CRÍTICA: Certificados raíz de usuario detectados (Posible MITM / Interceptación HTTPS).")
                       } else {
-                          append("✓ Almacén de certificados limpio (Sin certificados extraños de usuario).")
+                          append("✓ Almacén de certificados limpio.")
                       }
                   }
 
@@ -327,7 +325,6 @@ jobs:
           import androidx.activity.ComponentActivity
           import androidx.activity.compose.setContent
           import androidx.compose.animation.AnimatedVisibility
-          import androidx.compose.foundation.background
           import androidx.compose.foundation.layout.*
           import androidx.compose.foundation.lazy.LazyColumn
           import androidx.compose.foundation.lazy.items
@@ -379,7 +376,6 @@ jobs:
               var statusText by remember { mutableStateOf("Listo para analizar") }
 
               Column(Modifier.fillMaxSize().padding(16.dp).statusBarsPadding()) {
-                  // Cabecera profesional
                   Row(
                       modifier = Modifier.fillMaxWidth(),
                       horizontalArrangement = Arrangement.SpaceBetween,
@@ -387,14 +383,14 @@ jobs:
                   ) {
                       Column {
                           Text("GUARDIAN PRO", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold, color = Color.White)
-                          Text("Auditoría de Seguridad & Privacidad", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+                          Text("Seguridad & Privacidad para Redmi", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
                       }
                       Surface(
                           color = if (scanning) Color(0xFFF57C00) else Color(0xFF2E7D32),
                           shape = RoundedCornerShape(12.dp)
                       ) {
                           Text(
-                              text = if (scanning) "ESCANEANDO"v.toString() else "PROTEGIDO",
+                              text = if (scanning) "ESCANEANDO" else "PROTEGIDO",
                               modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
                               style = MaterialTheme.typography.labelSmall,
                               color = Color.White,
@@ -405,7 +401,6 @@ jobs:
                   
                   Spacer(Modifier.height(20.dp))
 
-                  // Botón de escaneo principal con estilo moderno
                   Button(
                       modifier = Modifier.fillMaxWidth().height(54.dp),
                       shape = RoundedCornerShape(14.dp),
@@ -417,23 +412,23 @@ jobs:
                           findings = null
                           
                           scope.launch {
-                              statusText = "Analizando aplicaciones instaladas y permisos..."
+                              statusText = "Analizando aplicaciones y permisos..."
                               progress = 0.2f
                               delay(400)
                               val appResults = withContext(Dispatchers.Default) { scanner.scanApps() }
                               
-                              statusText = "Inspeccionando almacenamiento en busca de archivos APK..."
+                              statusText = "Inspeccionando almacenamiento..."
                               progress = 0.6f
                               delay(400)
                               val storageResults = withContext(Dispatchers.Default) { scanner.scanStorageForRisks() }
                               
-                              statusText = "Auditando red, VPNs y certificados de interceptación..."
+                              statusText = "Auditando red y certificados..."
                               progress = 0.9f
                               delay(400)
                               val netResults = withContext(Dispatchers.Default) { scanner.auditNetworkAndInterception() }
                               
                               progress = 1f
-                              statusText = "¡Análisis completado con éxito!"
+                              statusText = "¡Análisis completado!"
                               
                               findings = appResults
                               fileFindings = storageResults
@@ -447,7 +442,6 @@ jobs:
 
                   Spacer(Modifier.height(16.dp))
 
-                  // Barra de Carga Animada y Estado Dinámico
                   AnimatedVisibility(visible = scanning) {
                       Column(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
                           LinearProgressIndicator(
@@ -463,14 +457,10 @@ jobs:
 
                   Spacer(Modifier.height(8.dp))
 
-                  // Resultados del análisis en lista estructurada
                   LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillWeight(1f)) {
-                      
-                      // Tarjeta de Red y Tráfico
                       networkAudit?.let { net ->
                           item {
                               val cardColor = if (net.risk == Risk.HIGH) Color(0xFF3B1010) else Color(0xFF1E281E)
-                              val borderColor = if (net.risk == Risk.HIGH) Color(0xFFD32F2F) else Color(0xFF388E3C)
                               Card(
                                   modifier = Modifier.fillMaxWidth(),
                                   colors = CardDefaults.cardColors(containerColor = cardColor)
@@ -493,7 +483,7 @@ jobs:
 
                       if (fileFindings.isNotEmpty()) {
                           item { 
-                              Text("Archivos Sospechosos en Almacenamiento (${fileFindings.size})", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = Color.White) 
+                              Text("Archivos Sospechosos (${fileFindings.size})", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = Color.White) 
                           }
                           items(fileFindings, key = { it.path }) { ff -> FileFindingCard(ff) }
                       }
