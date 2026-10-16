@@ -14,7 +14,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Crear archivos del proyecto (Actualización Profesional)
+      - name: Configurar Java (Temurin 17)
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Configurar Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.9"
+          cache-read-only: false
+
+      - name: Crear archivos del proyecto
         run: |
           write() { [ -f "$1" ] && return; mkdir -p "$(dirname "$1")"; cat > "$1"; }
           
@@ -52,8 +64,8 @@ jobs:
                   applicationId = "com.example.guardian"
                   minSdk = 26
                   targetSdk = 34
-                  versionCode = 3
-                  versionName = "2.1"
+                  versionCode = 4
+                  versionName = "2.2"
               }
 
               buildFeatures { compose = true }
@@ -196,19 +208,19 @@ jobs:
                       score += 1 
                   }
 
-                  if (name in accessibility) { reasons += "Servicio de Accesibilidad ACTIVO (Monitoreo total de pantalla)"; score += 3 }
-                  if (name in listeners) { reasons += "Intercepta notificaciones del sistema en tiempo real"; score += 2 }
+                  if (name in accessibility) { reasons += "Servicio de Accesibilidad ACTIVO (Monitoreo total)"; score += 3 }
+                  if (name in listeners) { reasons += "Intercepta notificaciones del sistema"; score += 2 }
                   if (name in admins) { reasons += "Posee privilegios de Administrador del dispositivo"; score += 3 }
                   if (name in remoteControlApps) { reasons += "Herramienta de acceso o control remoto detectada"; score += 2 }
 
                   if (pm.getLaunchIntentForPackage(name) == null) {
-                      reasons += "Aplicación oculta (Sin icono visible en el lanzador)"; score += 2
+                      reasons += "Aplicación oculta (Sin icono visible)"; score += 2
                   }
 
                   val perms = p.requestedPermissions?.toSet().orEmpty()
                   val spy = perms.intersect(spyPermissions)
                   if (spy.size >= 3) {
-                      reasons += "Alto nivel de permisos combinados de espionaje: ${spy.joinToString { it.substringAfterLast('.') }}"
+                      reasons += "Alto nivel de permisos combinados de espionaje"
                       score += 2
                   }
 
@@ -241,7 +253,7 @@ jobs:
                                           path = file.absolutePath,
                                           name = file.name,
                                           risk = Risk.MEDIUM,
-                                          reason = "Archivo APK suelto en descargas (riesgo de instalador no verificado)"
+                                          reason = "Archivo APK suelto en descargas"
                                       )
                                   )
                               }
@@ -262,12 +274,12 @@ jobs:
 
                   val message = buildString {
                       if (isVpnActive) {
-                          append("⚠️ ALERTA: Conexión VPN activa. Tráfico redirigido o potencialmente interceptado.\n")
+                          append("⚠️ ALERTA: Conexión VPN activa (tráfico potencialmente enrutado).\n")
                       } else {
                           append("✓ Sin túneles VPN activos.\n")
                       }
                       if (hasUserCAs) {
-                          append("⚠️ ALERTA CRÍTICA: Certificados raíz de usuario detectados (Posible MITM / Interceptación HTTPS).")
+                          append("⚠️ ALERTA CRÍTICA: Certificados raíz de usuario detectados (Posible MITM).")
                       } else {
                           append("✓ Almacén de certificados limpio.")
                       }
@@ -546,16 +558,6 @@ jobs:
               }
           }
           GUARDIAN_EOF
-
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: 17
-
-      - uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: "8.9"
-          cache-read-only: false
 
       - name: Compilar APK Ultimate
         run: gradle assembleDebug -Pandroid.useAndroidX=true --no-daemon
