@@ -23,6 +23,13 @@ jobs:
       - name: Crear archivos del proyecto con herramientas avanzadas
         run: |
           write() { [ -f "$1" ] && return; mkdir -p "$(dirname "$1")"; cat > "$1"; }
+
+          write gradle.properties <<'GUARDIAN_EOF'
+          android.useAndroidX=true
+          android.nonTransitiveRClass=true
+          org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
+          GUARDIAN_EOF
+          
           
           write settings.gradle.kts <<'GUARDIAN_EOF'
           pluginManagement {
