@@ -92,8 +92,9 @@ jobs:
           # Generar carpetas de iconos e insertar imagen por defecto si no existe vía curl
           mkdir -p app/src/main/res/mipmap-xxhdpi app/src/main/res/mipmap-xxxhdpi app/src/main/res/mipmap-hdpi app/src/main/res/mipmap-xhdpi
           
-          # Descarga robusta con alternativa de respaldo o generación de icono seguro
-          curl -L "https://raw.githubusercontent.com/ElFurby/guardian/tree/main/assets/1792126332744.jpg" -o app/src/main/res/mipmap-xxhdpi/ic_launcher.png || true
+                    # Copiar la imagen existente en el repositorio directamente a la carpeta de iconos de la app
+          cp -f assets/1792126332744.jpg app/src/main/res/mipmap-xxhdpi/ic_launcher.png 2>/dev/null || true
+          
           
           # Si el archivo descargado está vacío, creamos un marcador válido para que no falle el empaquetado
           if [ ! -s app/src/main/res/mipmap-xxhdpi/ic_launcher.png ]; then
