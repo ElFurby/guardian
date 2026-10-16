@@ -496,7 +496,7 @@ jobs:
 
                       if (findings != null && findings!!.isEmpty() && fileFindings.isEmpty() && networkAudit?.risk == Risk.LOW) {
                           item {
-                              Box(modifier = Modifier.fillMaxWidth().padding(40.dp), contentAlignment = Alignment.Center) {
+                              Box(modifier = Modifier.weight(1f).padding(40.dp), contentAlignment = Alignment.Center) {
                                   Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                       Text("🛡️", fontSize = 48.sp)
                                       Spacer(Modifier.height(8.dp))
