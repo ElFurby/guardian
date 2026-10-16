@@ -20,8 +20,8 @@ jobs:
           distribution: temurin
           java-version: 17
 
-      - name: Configurar Gradle
-        uses: gradle/actions/setup-gradle@v3
+      - name: Deshabilitar cache para evitar error de red
+        run: echo "org.gradle.caching=false" >> gradle.properties
 
       - name: Crear archivos del proyecto
         run: |
