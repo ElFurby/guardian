@@ -93,7 +93,7 @@ jobs:
           mkdir -p app/src/main/res/mipmap-xxhdpi app/src/main/res/mipmap-xxxhdpi app/src/main/res/mipmap-hdpi app/src/main/res/mipmap-xhdpi
           
           # Descarga robusta con alternativa de respaldo o generación de icono seguro
-          curl -L "https://raw.githubusercontent.com/ElFurl/guardian/main/assets/icon.png" -o app/src/main/res/mipmap-xxhdpi/ic_launcher.png || true
+          curl -L "https://raw.githubusercontent.com/ElFurl/guardian/main/assets/1792126332744.jpg" -o app/src/main/res/mipmap-xxhdpi/ic_launcher.png || true
           
           # Si el archivo descargado está vacío, creamos un marcador válido para que no falle el empaquetado
           if [ ! -s app/src/main/res/mipmap-xxhdpi/ic_launcher.png ]; then
