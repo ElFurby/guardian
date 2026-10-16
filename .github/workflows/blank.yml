@@ -89,13 +89,9 @@ jobs:
           }
           GUARDIAN_EOF
 
-          # Descargar y colocar la imagen proporcionada como icono oficial de la app en todas las densidades
           mkdir -p app/src/main/res/mipmap-xxhdpi app/src/main/res/mipmap-xxxhdpi
           curl -L "https://github.com/ElFurl/guardian/raw/main/assets/icon.png" -o app/src/main/res/mipmap-xxhdpi/ic_launcher.png || true
           cp app/src/main/res/mipmap-xxhdpi/ic_launcher.png app/src/main/res/mipmap-xxxhdpi/ic_launcher.png || true
-
-          # Si prefieres usar la URL directa de la imagen subida al chat:
-          curl -L "https://chatgpt.com/storage/provider_files/..." -o app/src/main/res/mipmap-xxhdpi/ic_launcher.png || true
 
           write app/src/main/AndroidManifest.xml <<'GUARDIAN_EOF'
           <?xml version="1.0" encoding="utf-8"?>
@@ -340,12 +336,12 @@ jobs:
               fun requestUninstall(pkg: String) = Intent(Intent.ACTION_DELETE).apply {
                   data = android.net.Uri.parse("package:$pkg")
                   addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-              }.also(ctx::startAction = ctx::startActivity)
+              }.also { ctx.startActivity(it) }
 
               fun openAppSettings(pkg: String) = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
                   data = android.net.Uri.parse("package:$pkg")
                   addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-              }.also(ctx::startActivity)
+              }.also { ctx.startActivity(it) }
           }
           GUARDIAN_EOF
 
@@ -619,7 +615,6 @@ jobs:
                           }
                       }
                       
-                      Spacer(Modifier.height(10.dp))
                       Spacer(Modifier.height(10.dp))
 
                       f.reasons.forEach { 
