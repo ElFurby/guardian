@@ -187,3 +187,78 @@ jobs:
                       pkg = name,
                       label = pm.getApplicationLabel(p.applicationInfo!!).toString(),
                       
+                      risk = risk,
+                      reasons = reasons,
+                      sha256 = sha256(File(p.applicationInfo!!.sourceDir))
+                  )
+              }
+
+              private fun enabledAccessibilityPackages(): Set<String> {
+                  val raw = Settings.Secure.getString(
+                      ctx.contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
+                  ) ?: return emptySet()
+                  return raw.split(':').mapNotNull { it.substringBefore('/').ifBlank { null } }.toSet()
+              }
+
+              private fun deviceAdminPackages(): Set<String> {
+                  val dpm = ctx.getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
+                  return dpm.activeAdmins?.map { it.packageName }?.toSet().orEmpty()
+              }
+
+              private fun sha256(file: File): String {
+                  val md = MessageDigest.getInstance("SHA-256")
+                  file.inputStream().use { s ->
+                      val buf = ByteArray(8192)
+                      while (true) { val n = s.read(buf); if (n < 0) break; md.update(buf, 0, n) }
+                  }
+                  return md.digest().joinToString("") { "%02x".format(it) }
+              }
+
+              // --- "Expulsar": solo se puede pedir al usuario que confirme ---
+
+              fun requestUninstall(pkg: String) = Intent(Intent.ACTION_DELETE).apply {
+                  data = android.net.Uri.parse("package:$pkg")
+                  addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+              }.also(ctx::startActivity)
+
+              fun openAppSettings(pkg: String) = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                  data = android.net.Uri.parse("package:$pkg")
+                  addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+              }.also(ctx::startActivity)
+
+              fun openAccessibilitySettings() =
+                  ctx.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+          }
+          GUARDIAN_EOF
+          write app/src/main/java/com/example/guardian/MainActivity.kt <<'GUARDIAN_EOF'
+          package com.example.guardian
+
+          import android.os.Bundle
+          import androidx.activity.ComponentActivity
+          import androidx.activity.compose.setContent
+          import androidx.compose.foundation.layout.*
+          import androidx.compose.foundation.lazy.LazyColumn
+          import androidx.compose.foundation.lazy.items
+          import androidx.compose.material3.*
+          import androidx.compose.runtime.*
+          import androidx.compose.ui.Modifier
+          import androidx.compose.ui.graphics.Color
+          import androidx.compose.ui.platform.LocalContext
+          import androidx.compose.ui.unit.dp
+          import kotlinx.coroutines.Dispatchers
+          import kotlinx.coroutines.launch
+          import kotlinx.coroutines.withContext
+
+          class MainActivity : ComponentActivity() {
+              override fun onCreate(savedInstanceState: Bundle?) {
+                  super.onCreate(savedInstanceState)
+                  setContent { MaterialTheme { Surface { ScannerScreen() } } }
+              }
+          }
+
+          @Composable
+          fun ScannerScreen() {
+              val ctx = LocalContext.current
+              val scanner = remember { AppScanner(ctx) }
+              val scope = rememberCoroutineScope()
+              var findings by remember { mutableStateOf<List<Finding>?>(null) }
