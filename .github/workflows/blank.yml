@@ -541,7 +541,7 @@ jobs:
           }
 
           @Composable
-          fn FileFindingCard(ff: FileFinding) {
+          fun FileFindingCard(ff: FileFinding) {
               Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = Color(0xFF1E1E1E))) {
                   Column(Modifier.padding(14.dp)) {
                       Text(ff.name, color = Color(0xFFF57C00), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
