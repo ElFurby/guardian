@@ -262,3 +262,78 @@ jobs:
               val scanner = remember { AppScanner(ctx) }
               val scope = rememberCoroutineScope()
               var findings by remember { mutableStateOf<List<Finding>?>(null) }
+              var scanning by remember { mutableStateOf(false) }
+
+              Column(Modifier.fillMaxSize().padding(16.dp).statusBarsPadding()) {
+                  Text("Guardian", style = MaterialTheme.typography.headlineMedium)
+                  Spacer(Modifier.height(12.dp))
+
+                  Button(
+                      enabled = !scanning,
+                      onClick = {
+                          scanning = true
+                          scope.launch {
+                              findings = withContext(Dispatchers.Default) { scanner.scan() }
+                              scanning = false
+                          }
+                      }
+                  ) { Text(if (scanning) "Analizando..." else "Analizar teléfono") }
+
+                  Spacer(Modifier.height(12.dp))
+
+                  findings?.let { list ->
+                      if (list.isEmpty()) Text("No se encontraron señales sospechosas.")
+                      else LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                          items(list, key = { it.pkg }) { f -> FindingCard(f, scanner) }
+                      }
+                  }
+              }
+          }
+
+          @Composable
+          fun FindingCard(f: Finding, scanner: AppScanner) {
+              val color = when (f.risk) {
+                  Risk.HIGH -> Color(0xFFD32F2F)
+                  Risk.MEDIUM -> Color(0xFFF57C00)
+                  Risk.LOW -> Color(0xFF689F38)
+              }
+              Card(Modifier.fillMaxWidth()) {
+                  Column(Modifier.padding(12.dp)) {
+                      Text("${f.label} · ${f.risk}", color = color, style = MaterialTheme.typography.titleMedium)
+                      Text(f.pkg, style = MaterialTheme.typography.bodySmall)
+                      Spacer(Modifier.height(6.dp))
+                      f.reasons.forEach { Text("• $it", style = MaterialTheme.typography.bodyMedium) }
+                      Spacer(Modifier.height(8.dp))
+                      Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                          OutlinedButton(onClick = { scanner.openAppSettings(f.pkg) }) { Text("Ajustes") }
+                          Button(onClick = { scanner.requestUninstall(f.pkg) }) { Text("Desinstalar") }
+                      }
+                  }
+              }
+          }
+          GUARDIAN_EOF
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.9"
+
+      - name: Compilar
+        run: gradle assembleDebug -Pandroid.useAndroidX=true --no-daemon
+
+      - name: Guardar APK como artefacto
+        uses: actions/upload-artifact@v4
+        with:
+          name: guardian-apk
+          path: app/build/outputs/apk/debug/app-debug.apk
+
+      - name: Publicar APK en Releases
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: build-${{ github.run_number }}
+          name: Guardian build ${{ github.run_number }}
+          files: app/build/outputs/apk/debug/app-debug.apk
