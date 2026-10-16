@@ -1,4 +1,4 @@
-name: Compilar APK
+name: Compilar APK Pro
 
 on:
   push:
@@ -17,6 +17,7 @@ jobs:
       - name: Crear archivos del proyecto (solo los que falten)
         run: |
           write() { [ -f "$1" ] && return; mkdir -p "$(dirname "$1")"; cat > "$1"; }
+          
           write settings.gradle.kts <<'GUARDIAN_EOF'
           pluginManagement {
               repositories {
@@ -35,6 +36,7 @@ jobs:
           rootProject.name = "Guardian"
           include(":app")
           GUARDIAN_EOF
+
           write app/build.gradle.kts <<'GUARDIAN_EOF'
           plugins {
               id("com.android.application") version "8.5.2"
@@ -71,18 +73,27 @@ jobs:
               implementation("androidx.activity:activity-compose:1.9.2")
               implementation("androidx.core:core-ktx:1.13.1")
               implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
+              implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.5")
           }
           GUARDIAN_EOF
+
           write app/src/main/AndroidManifest.xml <<'GUARDIAN_EOF'
           <?xml version="1.0" encoding="utf-8"?>
           <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
               <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
               <uses-permission android:name="android.permission.REQUEST_DELETE_PACKAGES" />
+              <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
+              <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+              <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
+              <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
+              <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
               <application
-                  android:label="Guardian"
-                  android:theme="@android:style/Theme.Material.Light.NoActionBar">
+                  android:label="Guardian Pro"
+                  android:theme="@android:style/Theme.Material.Light.NoActionBar"
+                  android:allowBackup="false"
+                  android:fullBackupContent="false">
                   <activity
                       android:name=".MainActivity"
                       android:exported="true">
@@ -94,6 +105,7 @@ jobs:
               </application>
           </manifest>
           GUARDIAN_EOF
+
           write app/src/main/java/com/example/guardian/AppScanner.kt <<'GUARDIAN_EOF'
           package com.example.guardian
 
@@ -103,6 +115,8 @@ jobs:
           import android.content.pm.ApplicationInfo
           import android.content.pm.PackageInfo
           import android.content.pm.PackageManager
+          import android.net.ConnectivityManager
+          import android.net.NetworkCapabilities
           import android.provider.Settings
           import androidx.core.app.NotificationManagerCompat
           import java.io.File
@@ -110,12 +124,19 @@ jobs:
 
           enum class Risk { LOW, MEDIUM, HIGH }
 
-                    data class Finding(
+          data class Finding(
               val pkg: String,
               val label: String,
               val risk: Risk,
               val reasons: List<String>,
               val sha256: String
+          )
+
+          data class FileFinding(
+              val path: String,
+              val name: String,
+              val risk: Risk,
+              val reason: String
           )
 
           class AppScanner(private val ctx: Context) {
@@ -124,7 +145,7 @@ jobs:
 
               private val remoteControlApps = setOf(
                   "com.anydesk.anydeskandroid", "com.teamviewer.quicksupport.market",
-                  "com.teamviewer.host.market", "com.rustdesk"
+                  "com.teamviewer.host.market", "com.rustdesk", "com.splashtop.remote.viewer"
               )
 
               private val spyPermissions = setOf(
@@ -133,7 +154,7 @@ jobs:
                   "android.permission.READ_CALL_LOG", "android.permission.CAMERA"
               )
 
-              fun scan(): List<Finding> {
+              fun scanApps(): List<Finding> {
                   val enabledAccessibility = enabledAccessibilityPackages()
                   val notifListeners = NotificationManagerCompat.getEnabledListenerPackages(ctx)
                   val admins = deviceAdminPackages()
@@ -161,42 +182,82 @@ jobs:
                       pm.getInstallerPackageName(name)
                   }
 
-                  // Xiaomi usa GetApps (com.xiaomi.mipicks) y Play Store como fuentes legítimas
-                  val trusted = setOf("com.android.vending", "com.xiaomi.mipicks", "com.miui.packageinstaller")
-                  if (installer !in trusted) { reasons += "Instalada fuera de tiendas oficiales"; score += 1 }
+                  val trusted = setOf("com.android.vending", "com.xiaomi.mipicks", "com.miui.packageinstaller", "com.google.android.packageinstaller")
+                  if (installer !in trusted && installer != null) { 
+                      reasons += "Instalada desde fuente no oficial: $installer"
+                      score += 1 
+                  }
 
-                  if (name in accessibility) { reasons += "Servicio de Accesibilidad ACTIVO (puede leer tu pantalla)"; score += 3 }
-                  if (name in listeners) { reasons += "Lee tus notificaciones"; score += 2 }
-                  if (name in admins) { reasons += "Es administrador del dispositivo"; score += 3 }
-                  if (name in remoteControlApps) { reasons += "App de control remoto"; score += 2 }
+                  if (name in accessibility) { reasons += "Servicio de Accesibilidad ACTIVO (Monitoreo de pantalla)"; score += 3 }
+                  if (name in listeners) { reasons += "Intercepta notificaciones del sistema"; score += 2 }
+                  if (name in admins) { reasons += "Posee privilegios de Administrador del dispositivo"; score += 3 }
+                  if (name in remoteControlApps) { reasons += "Herramienta de control remoto detectada"; score += 2 }
 
                   if (pm.getLaunchIntentForPackage(name) == null) {
-                      reasons += "Sin icono en el lanzador (oculta)"; score += 2
+                      reasons += "Aplicación oculta (Sin icono en el lanzador)"; score += 2
                   }
 
                   val perms = p.requestedPermissions?.toSet().orEmpty()
                   val spy = perms.intersect(spyPermissions)
                   if (spy.size >= 3) {
-                      reasons += "Combo de permisos de espionaje: ${spy.joinToString { it.substringAfterLast('.') }}"
+                      reasons += "Alto nivel de permisos sensibles: ${spy.joinToString { it.substringAfterLast('.') }}"
                       score += 2
                   }
+
                   if (score == 0) return null
                   val risk = when { score >= 5 -> Risk.HIGH; score >= 3 -> Risk.MEDIUM; else -> Risk.LOW }
 
+                  val sourceDir = p.applicationInfo?.sourceDir
+                  val hash = if (sourceDir != null) sha256(File(sourceDir)) else "DESCONOCIDO"
+
                   return Finding(
                       pkg = name,
-                      label = pm.getApplicationLabel(p.applicationInfo!!).toString(),
-                      
+                      label = p.applicationInfo?.let { pm.getApplicationLabel(it).toString() } ?: name,
                       risk = risk,
                       reasons = reasons,
-                      sha256 = sha256(File(p.applicationInfo!!.sourceDir))
+                      sha256 = hash
                   )
               }
 
+              fun scanStorageForRisks(): List<FileFinding> {
+                  val findings = mutableListOf<FileFinding>()
+                  val externalStorage = android.os.Environment.getExternalStorageDirectory()
+                  
+                  if (externalStorage.exists() && externalStorage.canRead()) {
+                      val downloadDir = File(externalStorage, "Download")
+                      if (downloadDir.exists()) {
+                          downloadDir.walkTopDown().maxDepth(3).forEach { file ->
+                              if (file.isFile && file.extension.lowercase() == "apk") {
+                                  findings.add(
+                                      FileFinding(
+                                          path = file.absolutePath,
+                                          name = file.name,
+                                          risk = Risk.MEDIUM,
+                                          reason = "Archivo APK suelto en descargas (potencial instalador olvidado o malicioso)"
+                                      )
+                                  )
+                              }
+                          }
+                      }
+                  }
+                  return findings
+              }
+
+              fun checkNetworkInterception(): String {
+                  val cm = ctx.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+                  val network = cm.activeNetwork
+                  val caps = cm.getNetworkCapabilities(network)
+                  
+                  return when {
+                      caps == null -> "Sin conexión a internet activa."
+                      caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN) -> "⚠️ Advertencia: Hay una VPN activa. Su tráfico podría estar siendo enrutado o interceptado por un tercero."
+                      caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> "Conectado vía Wi-Fi de manera estándar."
+                      else -> "Conectado a red móvil."
+                  }
+              }
+
               private fun enabledAccessibilityPackages(): Set<String> {
-                  val raw = Settings.Secure.getString(
-                      ctx.contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
-                  ) ?: return emptySet()
+                  val raw = Settings.Secure.getString(ctx.contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES) ?: return emptySet()
                   return raw.split(':').mapNotNull { it.substringBefore('/').ifBlank { null } }.toSet()
               }
 
@@ -206,15 +267,17 @@ jobs:
               }
 
               private fun sha256(file: File): String {
-                  val md = MessageDigest.getInstance("SHA-256")
-                  file.inputStream().use { s ->
-                      val buf = ByteArray(8192)
-                      while (true) { val n = s.read(buf); if (n < 0) break; md.update(buf, 0, n) }
+                  return try {
+                      val md = MessageDigest.getInstance("SHA-256")
+                      file.inputStream().use { s ->
+                          val buf = ByteArray(8192)
+                          while (true) { val n = s.read(buf); if (n < 0) break; md.update(buf, 0, n) }
+                      }
+                      md.digest().joinToString("") { "%02x".format(it) }
+                  } catch (e: Exception) {
+                      "Error calculando hash"
                   }
-                  return md.digest().joinToString("") { "%02x".format(it) }
               }
-
-              // --- "Expulsar": solo se puede pedir al usuario que confirme ---
 
               fun requestUninstall(pkg: String) = Intent(Intent.ACTION_DELETE).apply {
                   data = android.net.Uri.parse("package:$pkg")
@@ -225,11 +288,9 @@ jobs:
                   data = android.net.Uri.parse("package:$pkg")
                   addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
               }.also(ctx::startActivity)
-
-              fun openAccessibilitySettings() =
-                  ctx.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
           }
           GUARDIAN_EOF
+
           write app/src/main/java/com/example/guardian/MainActivity.kt <<'GUARDIAN_EOF'
           package com.example.guardian
 
@@ -241,6 +302,7 @@ jobs:
           import androidx.compose.foundation.lazy.items
           import androidx.compose.material3.*
           import androidx.compose.runtime.*
+          import androidx.compose.ui.Alignment
           import androidx.compose.ui.Modifier
           import androidx.compose.ui.graphics.Color
           import androidx.compose.ui.platform.LocalContext
@@ -252,7 +314,13 @@ jobs:
           class MainActivity : ComponentActivity() {
               override fun onCreate(savedInstanceState: Bundle?) {
                   super.onCreate(savedInstanceState)
-                  setContent { MaterialTheme { Surface { ScannerScreen() } } }
+                  setContent { 
+                      MaterialTheme(colorScheme = darkColorScheme()) { 
+                          Surface(modifier = Modifier.fillMaxSize()) { 
+                              ScannerScreen() 
+                          } 
+                      } 
+                  }
               }
           }
 
@@ -261,30 +329,69 @@ jobs:
               val ctx = LocalContext.current
               val scanner = remember { AppScanner(ctx) }
               val scope = rememberCoroutineScope()
+              
               var findings by remember { mutableStateOf<List<Finding>?>(null) }
+              var fileFindings by remember { mutableStateOf<List<FileFinding>>(emptyList()) }
+              var networkStatus by remember { mutableStateOf("No analizado") }
               var scanning by remember { mutableStateOf(false) }
 
               Column(Modifier.fillMaxSize().padding(16.dp).statusBarsPadding()) {
-                  Text("Guardian", style = MaterialTheme.typography.headlineMedium)
-                  Spacer(Modifier.height(12.dp))
+                  Text("Guardian Security Pro", style = MaterialTheme.typography.headlineMedium)
+                  Text("Protección avanzada para Redmi / HyperOS", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+                  
+                  Spacer(Modifier.height(16.dp))
 
                   Button(
+                      modifier = Modifier.fillMaxWidth(),
                       enabled = !scanning,
                       onClick = {
                           scanning = true
                           scope.launch {
-                              findings = withContext(Dispatchers.Default) { scanner.scan() }
+                              findings = withContext(Dispatchers.Default) { scanner.scanApps() }
+                              fileFindings = withContext(Dispatchers.Default) { scanner.scanStorageForRisks() }
+                              networkStatus = withContext(Dispatchers.Default) { scanner.checkNetworkInterception() }
                               scanning = false
                           }
                       }
-                  ) { Text(if (scanning) "Analizando..." else "Analizar teléfono") }
+                  ) { 
+                      Text(if (scanning) "Analizando sistema..." else "Iniciar Escaneo Completo") 
+                  }
 
                   Spacer(Modifier.height(12.dp))
 
-                  findings?.let { list ->
-                      if (list.isEmpty()) Text("No se encontraron señales sospechosas.")
-                      else LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                          items(list, key = { it.pkg }) { f -> FindingCard(f, scanner) }
+                  Card(modifier = Modifier.fillMaxWidth()) {
+                      Column(Modifier.padding(12.dp)) {
+                          Text("Estado de Red y Conexiones", style = MaterialTheme.typography.titleSmall)
+                          Spacer(Modifier.height(4.dp))
+                          Text(networkStatus, style = MaterialTheme.typography.bodyMedium)
+                      }
+                  }
+
+                  Spacer(Modifier.height(12.dp))
+
+                  if (scanning) {
+                      Box(modifier = Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) {
+                          CircularProgressIndicator()
+                      }
+                  } else {
+                      LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillWeight(1f)) {
+                          if (!findings.isNullOrEmpty()) {
+                              item { Text("Aplicaciones Sospechosas (${findings!!.size})", style = MaterialTheme.typography.titleMedium) }
+                              items(findings!!, key = { it.pkg }) { f -> FindingCard(f, scanner) }
+                          }
+
+                          if (fileFindings.isNotEmpty()) {
+                              item { Text("Archivos en Riesgo (${fileFindings.size})", style = MaterialTheme.typography.titleMedium) }
+                              items(fileFindings, key = { it.path }) { ff -> FileFindingCard(ff) }
+                          }
+
+                          if (findings != null && findings!!.isEmpty() && fileFindings.isEmpty()) {
+                              item {
+                                  Box(modifier = Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
+                                      Text("¡Sistema Limpio! No se detectaron amenazas.", color = Color(0xFF689F38))
+                                  }
+                              }
+                          }
                       }
                   }
               }
@@ -300,7 +407,7 @@ jobs:
               Card(Modifier.fillMaxWidth()) {
                   Column(Modifier.padding(12.dp)) {
                       Text("${f.label} · ${f.risk}", color = color, style = MaterialTheme.typography.titleMedium)
-                      Text(f.pkg, style = MaterialTheme.typography.bodySmall)
+                      Text(f.pkg, style = MaterialTheme.typography.bodySmall, color = Color.LightGray)
                       Spacer(Modifier.height(6.dp))
                       f.reasons.forEach { Text("• $it", style = MaterialTheme.typography.bodyMedium) }
                       Spacer(Modifier.height(8.dp))
@@ -308,6 +415,18 @@ jobs:
                           OutlinedButton(onClick = { scanner.openAppSettings(f.pkg) }) { Text("Ajustes") }
                           Button(onClick = { scanner.requestUninstall(f.pkg) }) { Text("Desinstalar") }
                       }
+                  }
+              }
+          }
+
+          @Composable
+          fun FileFindingCard(ff: FileFinding) {
+              Card(Modifier.fillMaxWidth()) {
+                  Column(Modifier.padding(12.dp)) {
+                      Text(ff.name, color = Color(0xFFF57C00), style = MaterialTheme.typography.titleMedium)
+                      Text(ff.path, style = MaterialTheme.typography.bodySmall, color = Color.LightGray)
+                      Spacer(Modifier.height(6.dp))
+                      Text("• ${ff.reason}", style = MaterialTheme.typography.bodyMedium)
                   }
               }
           }
@@ -321,19 +440,20 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "8.9"
+          cache-read-only: false
 
-      - name: Compilar
+      - name: Compilar APK en modo Debug
         run: gradle assembleDebug -Pandroid.useAndroidX=true --no-daemon
 
       - name: Guardar APK como artefacto
         uses: actions/upload-artifact@v4
         with:
-          name: guardian-apk
+          name: guardian-apk-pro
           path: app/build/outputs/apk/debug/app-debug.apk
 
       - name: Publicar APK en Releases
         uses: softprops/action-gh-release@v2
         with:
           tag_name: build-${{ github.run_number }}
-          name: Guardian build ${{ github.run_number }}
+          name: Guardian Pro build ${{ github.run_number }}
           files: app/build/outputs/apk/debug/app-debug.apk
